@@ -102,6 +102,8 @@ export default function SpaceGame() {
   const [timeValue, setTimeValue] = useState("00:00")
   const [planetInfo, setPlanetInfo] = useState<PlanetInfo | null>(null)
   const [planetMenuOpen, setPlanetMenuOpen] = useState(false)
+  const [menuHoverLock, setMenuHoverLock] = useState(false) // Lock menu open when interacting with it
+  const menuHoverLockRef = useRef(false)
   const [viewingPlanet, setViewingPlanet] = useState(false)
   const [selectedPlanetIndex, setSelectedPlanetIndex] = useState<number | null>(null)
   const [controlMode, setControlMode] = useState<"touch" | "keyboard">("keyboard")
@@ -212,6 +214,11 @@ export default function SpaceGame() {
     viewingPlanetRef.current = viewingPlanet
   }, [viewingPlanet])
 
+  // Keep menuHoverLock ref in sync for event handlers
+  useEffect(() => {
+    menuHoverLockRef.current = menuHoverLock
+  }, [menuHoverLock])
+
   // Keep selectedPlanetIndex ref in sync for animation loop
   useEffect(() => {
     selectedPlanetIndexRef.current = selectedPlanetIndex
@@ -309,9 +316,9 @@ export default function SpaceGame() {
       if (skyDome) skyDome.visible = true
     } else if (nextPhase === "space") {
       if (controlModeRef.current === "keyboard") {
-        setHudStatus("WASD para moverse, ratón para mirar. Clic en un planeta.")
+        setHudStatus("WASD para moverse, ratón para mirar. Pasa el cursor sobre un planeta.")
       } else {
-        setHudStatus("Arrastra para mirar. Pellizca para zoom. Toca un planeta.")
+        setHudStatus("Arrastra para mirar. Pellizca para zoom. Pasa sobre un planeta.")
       }
       setIsAlert(false)
       worldRef.current.isLaunching = false
@@ -2228,68 +2235,6 @@ export default function SpaceGame() {
             }
           }, 800)
         }
-      } else if (worldRef.current.phase === "space") {
-        console.log("[v0] Click in space phase, solarSystemRef:", !!solarSystemRef.current)
-        if (solarSystemRef.current) {
-          console.log("[v0] SolarSystem visible:", solarSystemRef.current.visible)
-          // Use recursive search to find planets inside groups
-          const allObjects: THREE.Object3D[] = []
-          solarSystemRef.current.traverse((obj) => {
-            if (obj instanceof THREE.Mesh) {
-              allObjects.push(obj)
-            }
-          })
-          const hits = raycaster.intersectObjects(allObjects, false)
-          
-          console.log("[v0] Raycasting - hits found:", hits.length, "objects checked:", allObjects.length)
-          console.log("[v0] Pointer position:", pointer.x, pointer.y)
-          if (hits.length > 0) {
-            console.log("[v0] Hit object names:", hits.map(h => h.object.name).join(", "))
-          }
-
-          for (const hit of hits) {
-            const name = hit.object.name
-            if (name && name.startsWith("planet-hit-")) {
-              const index = parseInt(name.replace("planet-hit-", ""), 10)
-              const planetGroup = planetsRef.current[index]
-              if (planetGroup) {
-                const data = planetGroup.userData
-                setPlanetInfo({
-                  name: data.name,
-                  description: data.description,
-                  temperature: data.temperature,
-                  diameter: data.diameter,
-                  moons: data.moons,
-                  fact: data.fact,
-                })
-                setSelectedPlanetIndex(index)
-                setPlanetMenuOpen(true)
-                setViewingPlanet(false)
-                return
-              }
-            }
-            if (name === "sun-hit-area") {
-              setPlanetInfo({
-                name: "Sol",
-                description: "Estrella central del sistema solar",
-                temperature: "5.500°C superficie",
-                diameter: "1.392.700 km",
-                moons: "8 planetas",
-                fact: "Es tan grande que caben 1.3 millones de tierras"
-              })
-              setSelectedPlanetIndex(-1) // -1 for sun
-              setPlanetMenuOpen(true)
-              setViewingPlanet(false)
-              return
-            }
-          }
-
-          // Only close if not viewing
-          if (!viewingPlanet) {
-            setPlanetInfo(null)
-            setPlanetMenuOpen(false)
-          }
-        }
       }
     }
 
@@ -2343,6 +2288,65 @@ export default function SpaceGame() {
           setHudStatus("Cohete detectado: toca para entrar")
         } else {
           setHudStatus("Toca el cohete para entrar en la nave")
+        }
+      }
+
+      // Handle hover over planets in space phase (show info on hover instead of click)
+      if (worldRef.current.phase === "space" && !viewingPlanetRef.current && solarSystemRef.current) {
+        updatePointerPosition(clientX, clientY)
+        raycaster.setFromCamera(pointer, camera)
+        
+        const allObjects: THREE.Object3D[] = []
+        solarSystemRef.current.traverse((obj) => {
+          if (obj instanceof THREE.Mesh) {
+            allObjects.push(obj)
+          }
+        })
+        const hits = raycaster.intersectObjects(allObjects, false)
+
+        let foundPlanet = false
+        for (const hit of hits) {
+          const name = hit.object.name
+          if (name && name.startsWith("planet-hit-")) {
+            const index = parseInt(name.replace("planet-hit-", ""), 10)
+            const planetGroup = planetsRef.current[index]
+            if (planetGroup) {
+              const data = planetGroup.userData
+              setPlanetInfo({
+                name: data.name,
+                description: data.description,
+                temperature: data.temperature,
+                diameter: data.diameter,
+                moons: data.moons,
+                fact: data.fact,
+              })
+              setSelectedPlanetIndex(index)
+              setPlanetMenuOpen(true)
+              foundPlanet = true
+              break
+            }
+          }
+          if (name === "sun-hit-area") {
+            setPlanetInfo({
+              name: "Sol",
+              description: "Estrella central del sistema solar",
+              temperature: "5.500°C superficie",
+              diameter: "1.392.700 km",
+              moons: "8 planetas",
+              fact: "Es tan grande que caben 1.3 millones de tierras"
+            })
+            setSelectedPlanetIndex(-1) // -1 for sun
+            setPlanetMenuOpen(true)
+            foundPlanet = true
+            break
+          }
+        }
+
+        // Hide info when not hovering over any planet (only if menu is open and not locked)
+        if (!foundPlanet && planetMenuOpen && !menuHoverLockRef.current) {
+          setPlanetInfo(null)
+          setPlanetMenuOpen(false)
+          setSelectedPlanetIndex(null)
         }
       }
     }
@@ -3306,21 +3310,26 @@ canvasRef.current?.removeEventListener("pointerdown", handlePointerDown as Event
             <p className="space-title">EXPLORACIÓN ESPACIAL</p>
             <p className="space-hint">
               {controlMode === "keyboard"
-                ? "WASD moverse · Espacio subir · Shift bajar · Ratón mirar (clic para capturar) · Clic en planeta"
-                : "Arrastra para mirar · Pellizca para zoom · Toca un planeta"}
+                ? "WASD moverse · Espacio subir · Shift bajar · Ratón mirar (clic para capturar) · Pasa sobre planeta"
+                : "Arrastra para mirar · Pellizca para zoom · Pasa sobre planeta"}
             </p>
           </div>
         </div>
         <div className="space-hud-bottom">
-          {/* Planet Menu - shown when clicking a planet */}
+          {/* Planet Menu - shown when hovering over a planet */}
           {planetInfo && planetMenuOpen && !viewingPlanet && (
-            <div className="planet-menu">
+            <div 
+              className="planet-menu"
+              onMouseEnter={() => setMenuHoverLock(true)}
+              onMouseLeave={() => setMenuHoverLock(false)}
+            >
               <button 
                 className="planet-menu-close-btn"
                 onClick={() => {
                   setPlanetMenuOpen(false)
                   setPlanetInfo(null)
                   setSelectedPlanetIndex(null)
+                  setMenuHoverLock(false)
                 }}
               >
                 X
@@ -3331,6 +3340,7 @@ canvasRef.current?.removeEventListener("pointerdown", handlePointerDown as Event
                   className="planet-menu-btn info-btn"
                   onClick={() => {
                     setPlanetMenuOpen(false)
+                    setMenuHoverLock(false)
                   }}
                 >
                   Información
@@ -3340,6 +3350,7 @@ canvasRef.current?.removeEventListener("pointerdown", handlePointerDown as Event
                   onClick={() => {
                     setPlanetMenuOpen(false)
                     setViewingPlanet(true)
+                    setMenuHoverLock(false)
                     // Reset planet rotation when entering viewing mode
                     cameraControlsRef.current.planetViewRotation = { x: 0, y: 0 }
                   }}
@@ -3350,14 +3361,19 @@ canvasRef.current?.removeEventListener("pointerdown", handlePointerDown as Event
             </div>
           )}
 
-          {/* Planet Info - shown after clicking "Información" */}
+          {/* Planet Info - shown after selecting "Información" */}
           {planetInfo && !planetMenuOpen && !viewingPlanet && (
-            <div className="planet-info">
+            <div 
+              className="planet-info"
+              onMouseEnter={() => setMenuHoverLock(true)}
+              onMouseLeave={() => setMenuHoverLock(false)}
+            >
               <button 
                 className="planet-close-btn"
                 onClick={() => {
                   setPlanetInfo(null)
                   setSelectedPlanetIndex(null)
+                  setMenuHoverLock(false)
                 }}
               >
                 X
@@ -3375,13 +3391,18 @@ canvasRef.current?.removeEventListener("pointerdown", handlePointerDown as Event
 
           {/* Planet Viewing Mode - 3D view with close button */}
           {viewingPlanet && planetInfo && (
-            <div className="planet-viewing">
+            <div 
+              className="planet-viewing"
+              onMouseEnter={() => setMenuHoverLock(true)}
+              onMouseLeave={() => setMenuHoverLock(false)}
+            >
               <button 
                 className="planet-view-close-btn"
                 onClick={() => {
                   setViewingPlanet(false)
                   setPlanetInfo(null)
                   setSelectedPlanetIndex(null)
+                  setMenuHoverLock(false)
                 }}
               >
                 X
