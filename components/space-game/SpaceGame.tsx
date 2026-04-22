@@ -102,6 +102,7 @@ export default function SpaceGame() {
   const [timeValue, setTimeValue] = useState("00:00")
   const [planetInfo, setPlanetInfo] = useState<PlanetInfo | null>(null)
   const [planetMenuOpen, setPlanetMenuOpen] = useState(false)
+  const planetMenuOpenRef = useRef(false)
   const [menuHoverLock, setMenuHoverLock] = useState(false) // Lock menu open when interacting with it
   const menuHoverLockRef = useRef(false)
   const [viewingPlanet, setViewingPlanet] = useState(false)
@@ -218,6 +219,11 @@ export default function SpaceGame() {
   useEffect(() => {
     menuHoverLockRef.current = menuHoverLock
   }, [menuHoverLock])
+
+  // Keep planetMenuOpen ref in sync for event handlers
+  useEffect(() => {
+    planetMenuOpenRef.current = planetMenuOpen
+  }, [planetMenuOpen])
 
   // Keep selectedPlanetIndex ref in sync for animation loop
   useEffect(() => {
@@ -2305,6 +2311,9 @@ export default function SpaceGame() {
         const hits = raycaster.intersectObjects(allObjects, false)
 
         let foundPlanet = false
+        if (hits.length > 0) {
+          console.log("[v0] Pointer hit:", hits[0].object.name)
+        }
         for (const hit of hits) {
           const name = hit.object.name
           if (name && name.startsWith("planet-hit-")) {
@@ -2343,7 +2352,7 @@ export default function SpaceGame() {
         }
 
         // Hide info when not hovering over any planet (only if menu is open and not locked)
-        if (!foundPlanet && planetMenuOpen && !menuHoverLockRef.current) {
+        if (!foundPlanet && planetMenuOpenRef.current && !menuHoverLockRef.current) {
           setPlanetInfo(null)
           setPlanetMenuOpen(false)
           setSelectedPlanetIndex(null)
@@ -2351,7 +2360,6 @@ export default function SpaceGame() {
       }
     }
 
-    // Keyboard/mouse FPS-style look
     function handleMouseMove(event: MouseEvent) {
       const controls = cameraControlsRef.current
       if (worldRef.current.phase === "space" && controlModeRef.current === "keyboard" && controls.pointerLocked) {
@@ -2359,6 +2367,65 @@ export default function SpaceGame() {
         controls.pitch -= event.movementY * controls.lookSensitivity
         const limit = Math.PI / 2 - 0.05
         controls.pitch = Math.max(-limit, Math.min(limit, controls.pitch))
+      }
+      
+      // Handle hover over planets when NOT in pointer lock mode
+      if (worldRef.current.phase === "space" && !viewingPlanetRef.current && solarSystemRef.current && !controls.pointerLocked) {
+        updatePointerPosition(event.clientX, event.clientY)
+        raycaster.setFromCamera(pointer, camera)
+        
+        const allObjects: THREE.Object3D[] = []
+        solarSystemRef.current.traverse((obj) => {
+          if (obj instanceof THREE.Mesh) {
+            allObjects.push(obj)
+          }
+        })
+        const hits = raycaster.intersectObjects(allObjects, false)
+
+        let foundPlanet = false
+        for (const hit of hits) {
+          const name = hit.object.name
+          if (name && name.startsWith("planet-hit-")) {
+            const index = parseInt(name.replace("planet-hit-", ""), 10)
+            const planetGroup = planetsRef.current[index]
+            if (planetGroup) {
+              const data = planetGroup.userData
+              setPlanetInfo({
+                name: data.name,
+                description: data.description,
+                temperature: data.temperature,
+                diameter: data.diameter,
+                moons: data.moons,
+                fact: data.fact,
+              })
+              setSelectedPlanetIndex(index)
+              setPlanetMenuOpen(true)
+              foundPlanet = true
+              break
+            }
+          }
+          if (name === "sun-hit-area") {
+            setPlanetInfo({
+              name: "Sol",
+              description: "Estrella central del sistema solar",
+              temperature: "5.500°C superficie",
+              diameter: "1.392.700 km",
+              moons: "8 planetas",
+              fact: "Es tan grande que caben 1.3 millones de tierras"
+            })
+            setSelectedPlanetIndex(-1)
+            setPlanetMenuOpen(true)
+            foundPlanet = true
+            break
+          }
+        }
+
+        // Hide info when not hovering over any planet
+        if (!foundPlanet && planetMenuOpenRef.current && !menuHoverLockRef.current) {
+          setPlanetInfo(null)
+          setPlanetMenuOpen(false)
+          setSelectedPlanetIndex(null)
+        }
       }
     }
 
