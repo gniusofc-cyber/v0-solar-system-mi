@@ -103,6 +103,7 @@ export default function SpaceGame() {
   const [planetInfo, setPlanetInfo] = useState<PlanetInfo | null>(null)
   const [planetMenuOpen, setPlanetMenuOpen] = useState(false)
   const planetMenuOpenRef = useRef(false)
+  const menuTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null) // Timer to auto-close menu after 5 seconds
   const [menuHoverLock, setMenuHoverLock] = useState(false) // Lock menu open when interacting with it
   const menuHoverLockRef = useRef(false)
   const [viewingPlanet, setViewingPlanet] = useState(false)
@@ -224,6 +225,34 @@ export default function SpaceGame() {
   useEffect(() => {
     planetMenuOpenRef.current = planetMenuOpen
   }, [planetMenuOpen])
+
+  // Helper function to open menu with 5 second auto-close timer
+  const openMenuWithTimer = useCallback(() => {
+    // Clear any existing timer
+    if (menuTimeoutRef.current) {
+      clearTimeout(menuTimeoutRef.current)
+    }
+    
+    setPlanetMenuOpen(true)
+    
+    // Set new timer to close menu after 5 seconds (only if not locked by hover)
+    menuTimeoutRef.current = setTimeout(() => {
+      if (!menuHoverLockRef.current) {
+        setPlanetMenuOpen(false)
+        setPlanetInfo(null)
+        setSelectedPlanetIndex(null)
+      }
+    }, 5000)
+  }, [])
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (menuTimeoutRef.current) {
+        clearTimeout(menuTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // Keep selectedPlanetIndex ref in sync for animation loop
   useEffect(() => {
@@ -2311,9 +2340,6 @@ export default function SpaceGame() {
         const hits = raycaster.intersectObjects(allObjects, false)
 
         let foundPlanet = false
-        if (hits.length > 0) {
-          console.log("[v0] Pointer hit:", hits[0].object.name)
-        }
         for (const hit of hits) {
           const name = hit.object.name
           if (name && name.startsWith("planet-hit-")) {
@@ -2330,7 +2356,7 @@ export default function SpaceGame() {
                 fact: data.fact,
               })
               setSelectedPlanetIndex(index)
-              setPlanetMenuOpen(true)
+              openMenuWithTimer()
               foundPlanet = true
               break
             }
@@ -2345,18 +2371,13 @@ export default function SpaceGame() {
               fact: "Es tan grande que caben 1.3 millones de tierras"
             })
             setSelectedPlanetIndex(-1) // -1 for sun
-            setPlanetMenuOpen(true)
+            openMenuWithTimer()
             foundPlanet = true
             break
           }
         }
 
-        // Hide info when not hovering over any planet (only if menu is open and not locked)
-        if (!foundPlanet && planetMenuOpenRef.current && !menuHoverLockRef.current) {
-          setPlanetInfo(null)
-          setPlanetMenuOpen(false)
-          setSelectedPlanetIndex(null)
-        }
+        // Don't auto-hide - let the timer handle it
       }
     }
 
@@ -2399,7 +2420,7 @@ export default function SpaceGame() {
                 fact: data.fact,
               })
               setSelectedPlanetIndex(index)
-              setPlanetMenuOpen(true)
+              openMenuWithTimer()
               foundPlanet = true
               break
             }
@@ -2414,18 +2435,13 @@ export default function SpaceGame() {
               fact: "Es tan grande que caben 1.3 millones de tierras"
             })
             setSelectedPlanetIndex(-1)
-            setPlanetMenuOpen(true)
+            openMenuWithTimer()
             foundPlanet = true
             break
           }
         }
 
-        // Hide info when not hovering over any planet
-        if (!foundPlanet && planetMenuOpenRef.current && !menuHoverLockRef.current) {
-          setPlanetInfo(null)
-          setPlanetMenuOpen(false)
-          setSelectedPlanetIndex(null)
-        }
+        // Don't auto-hide - let the timer handle it
       }
     }
 
@@ -3387,7 +3403,14 @@ canvasRef.current?.removeEventListener("pointerdown", handlePointerDown as Event
           {planetInfo && planetMenuOpen && !viewingPlanet && (
             <div 
               className="planet-menu"
-              onMouseEnter={() => setMenuHoverLock(true)}
+              onMouseEnter={() => {
+                setMenuHoverLock(true)
+                // Cancel auto-close timer when user enters menu
+                if (menuTimeoutRef.current) {
+                  clearTimeout(menuTimeoutRef.current)
+                  menuTimeoutRef.current = null
+                }
+              }}
               onMouseLeave={() => setMenuHoverLock(false)}
             >
               <button 
@@ -3397,6 +3420,10 @@ canvasRef.current?.removeEventListener("pointerdown", handlePointerDown as Event
                   setPlanetInfo(null)
                   setSelectedPlanetIndex(null)
                   setMenuHoverLock(false)
+                  if (menuTimeoutRef.current) {
+                    clearTimeout(menuTimeoutRef.current)
+                    menuTimeoutRef.current = null
+                  }
                 }}
               >
                 X
